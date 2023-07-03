@@ -131,20 +131,21 @@ object ThreadCommunication extends App {
 
   def prodConsLargeBuffer(): Unit = {
     val buffer: mutable.Queue[Int] = new mutable.Queue[Int]
-    val capacity: Int = 3
+    val capacity: Int = 9
 
-    val consumer = new Thread(() => {
+    def consumer(id: String) = new Thread(() => {
+      val name = s"consumer-$id"
       val random = new Random()
 
       while(true) {
         buffer.synchronized {
           if (buffer.isEmpty) {
-            println("[consumer] waiting...")
+            println(s"[$name] waiting...")
             buffer.wait()
           }
 
           val x = buffer.dequeue()
-          println("[consumer] i have consumed " + x)
+          println(s"[$name] i have consumed " + x)
 
           buffer.notify()
         }
@@ -153,18 +154,19 @@ object ThreadCommunication extends App {
       }
     })
 
-    val producer = new Thread(() => {
+    def producer(id: String) = new Thread(() => {
+      val name = s"producer-$id"
       val random = new Random()
       var i = 0
 
       while(true) {
         buffer.synchronized {
           if (buffer.size == capacity) {
-            println("[producer] buffer is full waiting...")
+            println(s"[$name] buffer is full waiting...")
             buffer.wait()
           }
 
-          println("[producer] producing " + i)
+          println(s"[$name] producing " + i)
           buffer.enqueue(i)
 
           buffer.notify()
@@ -176,10 +178,150 @@ object ThreadCommunication extends App {
       }
     })
 
-    consumer.start()
-    producer.start()
+    val consumers = List(consumer("1"), consumer("2"), consumer("3"))
+    val producers = List(producer("1"), producer("2"), producer("3"))
+
+    consumers.foreach(_.start())
+    producers.foreach(_.start())
   }
 
-  prodConsLargeBuffer()
+//  prodConsLargeBuffer()
+
+  /*
+    prod-cons, level 3
+
+    producer 1 -> [ ] -> consumer1
+    producer2 ---------- consumer2
+  */
+
+  class Consumer(id: Int, buffer: mutable.Queue[Int]) extends Thread {
+    override def run(): Unit = {
+      val random = new Random()
+
+      while(true) {
+        buffer.synchronized {
+          while (buffer.isEmpty) {
+            println(s"[consumer $id] waiting...")
+            buffer.wait()
+          }
+
+          val x = buffer.dequeue()
+          println(s"[consumer $id] i have consumed " + x)
+
+          buffer.notify()
+        }
+
+        Thread.sleep(random.nextInt(500))
+      }
+    }
+  }
+
+  class Producer(id: Int, buffer: mutable.Queue[Int], capacity: Int) extends Thread {
+    override def run(): Unit = {
+      val random = new Random()
+      var i = 0
+
+      while(true) {
+        buffer.synchronized {
+          while (buffer.size == capacity) {
+            println(s"[producer $id] buffer is full waiting...")
+            buffer.wait()
+          }
+
+          println(s"[producer $id] producing " + i)
+          buffer.enqueue(i)
+
+          buffer.notify()
+
+          i += 1
+        }
+
+        Thread.sleep(random.nextInt(500))
+      }
+    }
+  }
+
+  def multiProdCons(nConsumers: Int, nProducers: Int): Unit = {
+    val buffer = new mutable.Queue[Int]
+    val capacity = 20
+
+    (1 to nConsumers).foreach(i => new Consumer(i, buffer).start())
+    (1 to nProducers).foreach(i => new Producer(i, buffer, capacity).start())
+  }
+
+//  multiProdCons(3, 3)
+
+  /*
+  * Exercises:
+  1- think of an example where notifyAll acts in a different way than notify?
+  2- create a deadlock
+  3- create a livelock
+  * */
+
+  // 1 notifyAll
+  def testNotifyAll() = {
+    val bell = new Object
+
+    (1 to 10).foreach(i => new Thread(() => {
+      bell.synchronized {
+        println(s"[thread $i] waiting...")
+        bell.wait()
+        println(s"[thread $i] lesto...")
+      }
+    }).start())
+
+    new Thread(() => {
+      Thread.sleep(2000)
+      println(s"[announcer] dale gas...")
+
+      bell.synchronized {
+        bell.notify()
+      }
+    }).start()
+  }
+
+//  testNotifyAll()
+
+  // 2 - deadlock
+  case class Friend(name: String) {
+    def bow(other: Friend) = {
+      this.synchronized {
+        println(s"$this: I am bowing to my friend $other")
+        other.rise(this)
+        println(s"$this: my friend $other has risen")
+      }
+    }
+
+    def rise(other: Friend) = {
+      this.synchronized {
+        println(s"$this: I am rising to my friend $other")
+      }
+    }
+
+    def pass(other: Friend) = {
+      while (this.side == "right")
+        println(s"$this Oh, but please, $other, feel free to pass...")
+        switchSide()
+        Thread.sleep(1000)
+    }
+
+    var side = "right"
+
+    private def switchSide() = {
+      if (this.side == "left") side = "right"
+      else "left"
+    }
+  }
+
+  val sam = Friend("Sam")
+  val pierre = Friend("Pierre")
+
+//  new Thread(() => sam.bow(pierre)).start()
+//  new Thread(() => pierre.bow(sam)).start()
+
+  // 3 - livelock
+  new Thread(() => sam.pass(pierre)).start()
+  new Thread(() => pierre.pass(sam)).start()
+
 
 }
